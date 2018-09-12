@@ -1,6 +1,14 @@
 {
+  "scripts": {
+    "start": "forever service.js",
+    "dev": "nodemon service.js"
+  },
   "dependencies": {
+    "forever": "^0.15.3",
     "fs-extra": "^7.0.0",
     "line-reader": "^0.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^1.18.4"
   }
 }

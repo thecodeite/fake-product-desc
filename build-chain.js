@@ -1,87 +1,63 @@
+const JS = require('./JS');
+
 const fs = require('fs-extra');
 (async () => {
   const { promisify } = require('util');
   const eachLine = promisify(require('line-reader').eachLine);
 
-  const dictionary = {};
+  let idCount = 1;
+  const words = {};
+  const links = {};
 
   const txt = './prod-desc.txt';
-  let count = 500000;
+  let count = 1000000;
   await eachLine(txt, { bufferSize: 10240 }, line => {
+    // console.log('line:', line);
     const sentences = line
       .replace(/(href=")?https?:\/\/[\w\.-]+[^ ]+/g, 'URL')
       .toLowerCase()
       .replace(/ +/, ' ')
       .trim()
       .split('. ')
-      .map(x => x.trim().replace(/[^\w ]/g, ''));
+      .map(x => x.replace(/\./g, '').trim());
 
     for (let sentence of sentences) {
-      const words = ['§start§', ...sentence.split(' ').filter(x => x), '§end§'];
+      const sentenceWords = ['§s', ...sentence.split(' ').filter(x => x), '§e'];
 
-      for (let i = 0; i < words.length - 1; i++) {
-        let word = words[i];
-        let next = words[i + 1];
-        if (!dictionary[word]) dictionary[word] = {};
-        if (!dictionary[word][next]) dictionary[word][next] = 1;
-        else dictionary[word][next]++;
+      for (let i = 0; i < sentenceWords.length; i++) {
+        let word = sentenceWords[i];
+        let next = sentenceWords[i + 1];
+        let prev = sentenceWords[i - 1];
+        let wordId, nextId, prevId;
+
+        wordId = words[word] = words[word] || idCount++;
+        if (next) nextId = words[next] = words[next] || idCount++;
+        if (prev) prevId = words[prev] = words[prev] || idCount++;
+
+        if (!links[wordId]) links[wordId] = { w: word, c: 1 };
+        else links[wordId].c++;
+
+        if (next) {
+          if (!links[wordId].n) links[wordId].n = { f: {}, t: 0 };
+          if (!links[wordId].n.f[nextId]) links[wordId].n.f[nextId] = 1;
+          else links[wordId].n.f[nextId]++;
+          links[wordId].n.t++;
+        }
+        if (prev) {
+          if (!links[wordId].p) links[wordId].p = { f: {}, t: 0 };
+          if (!links[wordId].p.f[prevId]) links[wordId].p.f[prevId] = 1;
+          else links[wordId].p.f[prevId]++;
+          links[wordId].p.t++;
+        }
       }
     }
 
     return count-- > 0;
   });
 
-  const weightedDictionary = calc(dictionary);
   await fs.writeFile(
-    './weightedDictionary.json',
-    JSON.stringify(weightedDictionary, null, '  ')
+    './weightedLinks.js',
+    JS.stringify(links, depth => (/^(o|a)?$/.test(depth) ? '  ' : ''))
   );
+  await fs.writeFile('./weightedLinks.json', JSON.stringify(links, null, '  '));
 })();
-
-function calc(dictionary) {
-  return Object.entries(dictionary).reduce((p, [k, v]) => {
-    const total = Object.values(v).reduce((p, c) => p + c, 0);
-    return {
-      ...p,
-      [k]: Object.entries(v)
-        .map(([kk, vv]) => ({
-          word: kk,
-          abs: vv,
-          rel: vv / total
-        }))
-        .sort((a, b) => (a.rel === b.rel ? 0 : a.rel > b.rel ? -1 : 1))
-    };
-  }, {});
-}
-
-function gen(weightedDictionary) {
-  const firstWord = prickWord(weightedDictionary['§start§']);
-  let count = 50;
-  let nextWord = firstWord;
-  let sentence = firstWord[0].toUpperCase() + firstWord.slice(1);
-  do {
-    let nextWordArr = weightedDictionary[nextWord];
-    if (Array.isArray(nextWordArr) && nextWordArr.length) {
-      nextWord = prickWord(nextWordArr);
-      if (nextWord === '§end§') {
-        sentence += '.';
-      } else {
-        sentence += ' ' + nextWord;
-      }
-    }
-  } while (count-- > 0 && nextWord && nextWord !== '§end§');
-  return sentence;
-}
-
-function prickWord(arr) {
-  const r = Math.random();
-  let acc = 0;
-  let index = 0;
-  let cur;
-  while (acc < r) {
-    cur = arr[index++];
-    acc += cur.rel;
-  }
-
-  return cur.word;
-}
